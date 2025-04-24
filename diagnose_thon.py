@@ -1,97 +1,165 @@
+#!/usr/bin/env python3
+"""
+House Diagnosis Prompt Generator and LLM Responder.
+
+This script scrapes medical case details from House episode pages,
+creates structured prompts for an LLM, invokes the LLM to produce
+expected diagnoses, and saves results to Excel files.
+"""
+
 import os
-import re
+import sys
 import logging
+from pathlib import Path
+from typing import List
+
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv  
-from typing import List, Tuple
-from utils import openAIPayLoadHelper, parseOpenAIRespone
+from dotenv import load_dotenv
+from openai import OpenAI
+from pydantic import BaseModel
+
 from constants import SYSTEM_PROMPT, HOUSE_EPISODE_TITLES, BASE_URL
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logger with a clear format
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    logger.error("OpenAI API key is missing. Please add it to the .env file.")
-    exit(1)
+    logger.error("Missing OpenAI API key. Add OPENAI_API_KEY to your .env file.")
+    sys.exit(1)
 
-class ParsedObject:
-    """Parses website content and extracts medical information."""
-    
-    def __init__(self, url: str, episode_name: str) -> None:
+# Initialize the OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+class EpisodeInformation(BaseModel):
+    """Structured response from LLM for a single episode."""
+    prompt: str
+    expected_llm_response: str
+    disease_name: str
+
+class ParsedEpisode:
+    """Fetch and parse episode web page to extract raw text content."""
+
+    def __init__(self, url: str, episode_name: str):
         self.url = url
         self.episode_name = episode_name
-        self.parsed_contents = self.parse_url(self.url)
-    
-    def parse_url(self, url: str) -> str:
-        """Fetches and parses the webpage content."""
-        response = requests.get(url)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, "html.parser")
-        return soup.get_text()
+        self.content = self._fetch_content()
 
-    def get_prompt(self) -> str:
-        """Constructs the prompt for the LLM based on parsed contents."""
-        prompt = (
-            "Use details in INFORMATION for creating your LLM prompt, required medical answer, and the disease name.\n"
-            "### INFORMATION ###\n"
-            f"{self.parsed_contents}\n"
-        )
-        return prompt
-
-def extract_disease_name(response: str) -> str:
-    """Extracts the disease name from the LLM response."""
-    match = re.search(r"Disease\s*:\s*(.+)", response, re.IGNORECASE)
-    return match.group(1).strip() if match else "Unknown"
-
-def main() -> None:
-    logger.info("=== Collecting Data ===")
-    parsed_objs: List[ParsedObject] = []
-    data = []
-
-    # Collect all URLs
-    for episode_name in HOUSE_EPISODE_TITLES:
-        url = f"{BASE_URL}{episode_name.replace(' ', '_')}"
-        logger.info(f"Processing: {episode_name} ::: {url}")
+    def _fetch_content(self) -> str:
+        """Retrieve and parse HTML content from the URL."""
         try:
-            parsed_obj = ParsedObject(url, episode_name)
-            parsed_objs.append(parsed_obj)
-        except Exception as error:
-            logger.error(f"Failed to process {url}: {error}")
+            response = requests.get(self.url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+            return soup.get_text(separator="\n")
+        except requests.RequestException as e:
+            logger.error("Failed to fetch %s: %s", self.url, e)
+            return ""
 
-    logger.info("=== Generating Medical Questions and Answers ===")
+    def build_llm_prompt(self) -> str:
+        """Compose the prompt text to send to the LLM."""
+        return (
+            "Use details in INFORMATION for creating your LLM prompt, "
+            "required medical answer, and the disease name.\n\n"
+            f"### INFORMATION ###\n{self.content}\n\n"
+            "Based on this information, generate a detailed prompt for a "
+            "medical professional track LLM to diagnose the patient. Also, "
+            "provide the expected medical answer that the LLM should give, "
+            "and explicitly state the exact disease name."
+        )
 
-    # Call the API and collect results
-    for parsed_obj in parsed_objs:
-        prompt = parsed_obj.get_prompt()
+def collect_episode_prompts() -> pd.DataFrame:
+    """
+    Scrape episode pages and generate structured prompts and expected responses.
 
-        # Format API payload
-        headers, payload = openAIPayLoadHelper(prompt, OPENAI_API_KEY, SYSTEM_PROMPT)
+    Returns:
+        DataFrame with columns: Episode Name, Prompt, Expected LLM Response, Disease
+    """
+    records: List[dict] = []
 
-        # Make the POST API call
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-        response.raise_for_status()
+    for ep_name in HOUSE_EPISODE_TITLES:
+        url = f"{BASE_URL}{ep_name.replace(' ', '_')}"
+        logger.info("Processing episode: %s", ep_name)
+        episode = ParsedEpisode(url, ep_name)
 
-        parsed_output = parseOpenAIRespone(response)
-        disease = extract_disease_name(parsed_output)
-        
-        # Append results to the data list
-        data.append([parsed_obj.episode_name, prompt, parsed_output, disease])
+        raw_prompt = episode.build_llm_prompt()
+        try:
+            # Parse structured response into EpisodeInformation model
+            resp = client.beta.chat.completions.parse(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": raw_prompt},
+                ],
+                response_format=EpisodeInformation,
+            )
+            info = resp.choices[0].message.parsed
+            records.append({
+                "Episode Name": ep_name,
+                "Prompt": info.prompt,
+                "Expected LLM Response": info.expected_llm_response,
+                "Disease": info.disease_name,
+            })
+        except Exception as e:
+            logger.error("API error for %s: %s", ep_name, e)
+            continue
 
-    # Create a Pandas DataFrame
-    df = pd.DataFrame(data, columns=["Episode Name", "Prompt", "Expected LLM Response", "Disease"])
+    df = pd.DataFrame(records)
+    output_path = Path("House_Diagnosis_structured_openai.xlsx")
+    df.to_excel(output_path, index=False, engine="openpyxl")
+    logger.info("Saved structured prompts to %s", output_path)
+    return df
 
-    # Save to an Excel file
-    excel_filename = "House_Diagnosis.xlsx"
-    df.to_excel(excel_filename, index=False, engine="openpyxl")
+def generate_llm_responses(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each prompt in the DataFrame, call the LLM to get the actual response.
 
-    logger.info(f"Excel file '{excel_filename}' has been generated successfully!")
+    Args:
+        df: DataFrame with a 'Prompt' column.
+
+    Returns:
+        Updated DataFrame including 'actual_llm_response' and 'model_used'.
+    """
+    responses: List[str] = []
+    models: List[str] = []
+
+    for idx, row in df.iterrows():
+        prompt = row["Prompt"]
+        logger.info("Generating response for row %d", idx)
+        try:
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            responses.append(completion.choices[0].message.content)
+            models.append(getattr(completion, "model", "gpt-4o-mini"))
+        except Exception as e:
+            logger.error("Error at row %d: %s", idx, e)
+            responses.append(f"Error: {e}")
+            models.append(None)
+
+    df["actual_llm_response"] = responses
+    df["model_used"] = models
+
+    output_path = Path("House_Diagnosis_with_actual_responses.xlsx")
+    df.to_excel(output_path, index=False, engine="openpyxl")
+    logger.info("Saved LLM responses to %s", output_path)
+    return df
+
+def main():
+    """Main entry point for script execution."""
+    df = collect_episode_prompts()
+    generate_llm_responses(df)
 
 if __name__ == "__main__":
     main()
