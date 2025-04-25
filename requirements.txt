@@ -1,3 +1,7 @@
-beautifulsoup4
+openai>=1.0.0
+python-dotenv
+pandas
 requests
-python-docx
+beautifulsoup4
+pydantic
+openpyxl
