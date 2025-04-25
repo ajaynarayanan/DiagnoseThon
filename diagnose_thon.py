@@ -21,6 +21,9 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from constants import SYSTEM_PROMPT, HOUSE_EPISODE_TITLES, BASE_URL
+GENERATED_DATA_DIR = Path("generated_data")
+GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # Configure logger with a clear format
 logging.basicConfig(
@@ -113,7 +116,7 @@ def collect_episode_prompts() -> pd.DataFrame:
             continue
 
     df = pd.DataFrame(records)
-    output_path = Path("House_Diagnosis_structured_openai.xlsx")
+    output_path = GENERATED_DATA_DIR / "House_Diagnosis_structured_openai.xlsx"
     df.to_excel(output_path, index=False, engine="openpyxl")
     logger.info("Saved structured prompts to %s", output_path)
     return df
@@ -151,7 +154,7 @@ def generate_llm_responses(df: pd.DataFrame) -> pd.DataFrame:
     df["actual_llm_response"] = responses
     df["model_used"] = models
 
-    output_path = Path("House_Diagnosis_with_actual_responses.xlsx")
+    output_path = GENERATED_DATA_DIR / "House_Diagnosis_with_actual_responses.xlsx"
     df.to_excel(output_path, index=False, engine="openpyxl")
     logger.info("Saved LLM responses to %s", output_path)
     return df
