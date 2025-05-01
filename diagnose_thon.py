@@ -159,10 +159,31 @@ def generate_llm_responses(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("Saved LLM responses to %s", output_path)
     return df
 
+def compute_accuracy(df: pd.DataFrame) -> float:
+    correct_flags = []
+
+    for idx, row in df.iterrows():
+        disease = str(row["Disease"]).lower()
+        response = str(row["actual_llm_response"]).lower()
+        correct = disease in response
+        correct_flags.append(correct)
+
+    df["is_correct"] = correct_flags
+    accuracy = sum(correct_flags) / len(correct_flags) if correct_flags else 0
+    logger.info("Accuracy: %.2f%% (%d/%d correct)", accuracy * 100, sum(correct_flags), len(correct_flags))
+
+    # Save updated Excel with correctness column
+    output_path = GENERATED_DATA_DIR / "House_Diagnosis_with_actual_responses_and_accuracy.xlsx"
+    df.to_excel(output_path, index=False, engine="openpyxl")
+    logger.info("Saved responses with accuracy flags to %s", output_path)
+
+    return accuracy
+
 def main():
     """Main entry point for script execution."""
     df = collect_episode_prompts()
     generate_llm_responses(df)
+    compute_accuracy(df)
 
 if __name__ == "__main__":
     main()
