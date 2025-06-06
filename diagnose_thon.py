@@ -19,6 +19,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
+from difflib import SequenceMatcher
+
 
 from constants import SYSTEM_PROMPT, HOUSE_EPISODE_TITLES, BASE_URL
 GENERATED_DATA_DIR = Path("generated_data")
@@ -159,18 +161,40 @@ def generate_llm_responses(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("Saved LLM responses to %s", output_path)
     return df
 
+def normalize(text: str) -> str:
+    """Lowercase and remove non-alphanumeric characters for cleaner comparison."""
+    import re
+    return re.sub(r'[^a-z0-9]', '', text.lower())
+
+def is_close_match(expected: str, actual: str, threshold: float = 0.8) -> bool:
+    """Check if expected disease closely matches any word/phrase in the actual response."""
+    expected_norm = normalize(expected)
+    actual_norm = normalize(actual)
+
+    # Exact containment check
+    if expected_norm in actual_norm:
+        return True
+
+    # Token-wise fuzzy comparison
+    for word in actual.split():
+        word_norm = normalize(word)
+        if SequenceMatcher(None, expected_norm, word_norm).ratio() >= threshold:
+            return True
+
+    return False
+
 def compute_accuracy(df: pd.DataFrame) -> float:
     correct_flags = []
 
     for idx, row in df.iterrows():
-        disease = str(row["Disease"]).lower()
-        response = str(row["actual_llm_response"]).lower()
-        correct = disease in response
+        disease = str(row["Disease"])
+        response = str(row["actual_llm_response"])
+        correct = is_close_match(disease, response)
         correct_flags.append(correct)
 
     df["is_correct"] = correct_flags
     accuracy = sum(correct_flags) / len(correct_flags) if correct_flags else 0
-    logger.info("Accuracy: %.2f%% (%d/%d correct)", accuracy * 100, sum(correct_flags), len(correct_flags))
+    logger.info("Accuracy (fuzzy matched): %.2f%% (%d/%d correct)", accuracy * 100, sum(correct_flags), len(correct_flags))
 
     # Save updated Excel with correctness column
     output_path = GENERATED_DATA_DIR / "House_Diagnosis_with_actual_responses_and_accuracy.xlsx"
@@ -178,6 +202,7 @@ def compute_accuracy(df: pd.DataFrame) -> float:
     logger.info("Saved responses with accuracy flags to %s", output_path)
 
     return accuracy
+
 
 def main():
     """Main entry point for script execution."""
