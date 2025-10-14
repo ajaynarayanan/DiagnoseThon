@@ -90,6 +90,7 @@ Neurocysticercosis
 
 BASE_URL = "https://house.fandom.com/wiki/"
 
+
 HOUSE_EPISODE_TITLES = [
     "Pilot",
     "Paternity",
@@ -135,7 +136,7 @@ HOUSE_EPISODE_TITLES = [
     "Euphoria (Part 1)",
     "Euphoria (Part 2)",
     "Forever",
-    "Who's Your Daddy?",
+    "Who%27s_Your_Daddy%3F",
     "No Reason",
     "Meaning",
     "Cane & Able",
@@ -163,7 +164,7 @@ HOUSE_EPISODE_TITLES = [
     "Human Error",
     "Alone",
     "The Right Stuff",
-    "97 Seconds",
+    "97_Seconds",
     "Guardian Angels",
     "Mirror Mirror",
     "Whatever It Takes",
@@ -222,7 +223,7 @@ HOUSE_EPISODE_TITLES = [
     "The Choice",
     "Baggage",
     "Help Me",
-    "Now What?",
+    "Now_What%3F",
     "Selfish",
     "Unwritten",
     "Massage Therapy",
@@ -230,7 +231,7 @@ HOUSE_EPISODE_TITLES = [
     "Office Politics",
     "A Pox on Our House",
     "Small Sacrifices",
-    "Larger Than Life",
+    "Larger than Life",
     "Carrot or Stick",
     "Family Practice",
     "You Must Remember This",
@@ -238,7 +239,7 @@ HOUSE_EPISODE_TITLES = [
     "Recession Proof",
     "Bombshells",
     "Out of the Chute",
-    "Fall from Grace",
+    "Fall From Grace",
     "The Dig",
     "Last Temptation",
     "Changes",
@@ -262,8 +263,8 @@ HOUSE_EPISODE_TITLES = [
     "Blowing the Whistle",
     "Gut Check",
     "We Need the Eggs",
-    "Body & Soul",
-    "The C-Word",
+    "Body and Soul",
+    "The_C_Word",
     "Post Mortem",
     "Holding On",
     "Everybody Dies",
