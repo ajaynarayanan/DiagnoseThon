@@ -275,14 +275,64 @@ def main_from_existing_excel():
     accuracy = compute_accuracy(df_with_responses)
     logger.info("Final Accuracy: %.2f%%", accuracy * 100)
 
+def accuracy_by_season(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute per-season accuracy using the 'Is Correct' column,
+    based on known row index ranges for each season.
+
+    Args:
+        df: DataFrame containing 'Is Correct' and episode rows in show order.
+
+    Returns:
+        DataFrame summarizing accuracy per season.
+    """
+
+    # Define mapping of row index ranges (1-based, so adjust for 0-based pandas index)
+    season_ranges = {
+        1: (1, 23),
+        2: (24, 47),
+        3: (48, 71),
+        4: (72, 87),
+        5: (88, 111),
+        6: (112, 132),
+        7: (133, 155),
+        8: (156, 177),
+    }
+
+    # Create a new 'Season' column based on row number
+    df = df.copy()
+    df["Season"] = None
+
+    for season, (start, end) in season_ranges.items():
+        mask = ((df.index + 1) >= start) & ((df.index + 1) <= end)
+        df.loc[mask, "Season"] = f"Season {season}"
+
+    # Compute accuracy per season
+    season_stats = (
+        df.groupby("Season")["is_correct"]
+        .agg(["count", "sum"])
+        .rename(columns={"count": "Total Episodes", "sum": "Correct Predictions"})
+        .reset_index()
+    )
+    season_stats["Accuracy (%)"] = (
+        season_stats["Correct Predictions"] / season_stats["Total Episodes"] * 100
+    ).round(2)
+
+    # Log and save
+    logger.info("\nPer-season accuracy:\n%s", season_stats.to_string(index=False))
+    #output_path = GENERATED_DATA_DIR / "House_Diagnosis_accuracy_by_season.xlsx"
+    #season_stats.to_excel(output_path, index=False, engine="openpyxl")
+    #logger.info("Saved per-season accuracy to %s", output_path)
+
+    return season_stats
+
 
 # ---------- Main ----------
 def main():
-    #df = collect_episode_prompts()
-    #generate_actual_responses(df)
-    input_path = GENERATED_DATA_DIR / "House_Diagnosis_with_accuracy_geminipro.xlsx"
-    df = pd.read_excel(input_path)
+    df = collect_episode_prompts()
+    generate_actual_responses(df)
     compute_accuracy(df)
+    accuracy_by_season(df)
 
 if __name__ == "__main__":
     main()
