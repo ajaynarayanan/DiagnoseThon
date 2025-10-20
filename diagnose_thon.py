@@ -24,8 +24,7 @@ from difflib import SequenceMatcher
 
 from constants import SYSTEM_PROMPT, HOUSE_EPISODE_TITLES, BASE_URL
 GENERATED_DATA_DIR = Path("generated_data")
-GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
+STRUCTURED_PATH = GENERATED_DATA_DIR / "House_Diagnosis_structured_openai.xlsx"
 
 # Configure logger with a clear format
 logging.basicConfig(
@@ -99,7 +98,7 @@ def collect_episode_prompts() -> pd.DataFrame:
         try:
             # Parse structured response into EpisodeInformation model
             resp = client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+                model="gpt-5-mini",
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": raw_prompt},
@@ -141,7 +140,7 @@ def generate_llm_responses(df: pd.DataFrame) -> pd.DataFrame:
         logger.info("Generating response for row %d", idx)
         try:
             completion = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5-mini",
                 messages=[
                     {"role": "user", "content": prompt},
                 ],
@@ -197,18 +196,70 @@ def compute_accuracy(df: pd.DataFrame) -> float:
     logger.info("Accuracy (fuzzy matched): %.2f%% (%d/%d correct)", accuracy * 100, sum(correct_flags), len(correct_flags))
 
     # Save updated Excel with correctness column
-    output_path = GENERATED_DATA_DIR / "House_Diagnosis_with_actual_responses_and_accuracy.xlsx"
-    df.to_excel(output_path, index=False, engine="openpyxl")
-    logger.info("Saved responses with accuracy flags to %s", output_path)
+    #output_path = GENERATED_DATA_DIR / "House_Diagnosis_with_actual_responses_and_accuracy.xlsx"
+    #df.to_excel(output_path, index=False, engine="openpyxl")
+    #logger.info("Saved responses with accuracy flags to %s", output_path)
 
     return accuracy
 
+def accuracy_by_season(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute per-season accuracy using the 'Is Correct' column,
+    based on known row index ranges for each season.
+
+    Args:
+        df: DataFrame containing 'Is Correct' and episode rows in show order.
+
+    Returns:
+        DataFrame summarizing accuracy per season.
+    """
+
+    # Define mapping of row index ranges (1-based, so adjust for 0-based pandas index)
+    season_ranges = {
+        1: (1, 23),
+        2: (24, 47),
+        3: (48, 71),
+        4: (72, 87),
+        5: (88, 111),
+        6: (112, 132),
+        7: (133, 155),
+        8: (156, 177),
+    }
+
+    # Create a new 'Season' column based on row number
+    df = df.copy()
+    df["Season"] = None
+
+    for season, (start, end) in season_ranges.items():
+        mask = ((df.index + 1) >= start) & ((df.index + 1) <= end)
+        df.loc[mask, "Season"] = f"Season {season}"
+
+    # Compute accuracy per season
+    season_stats = (
+        df.groupby("Season")["is_correct"]
+        .agg(["count", "sum"])
+        .rename(columns={"count": "Total Episodes", "sum": "Correct Predictions"})
+        .reset_index()
+    )
+    season_stats["Accuracy (%)"] = (
+        season_stats["Correct Predictions"] / season_stats["Total Episodes"] * 100
+    ).round(2)
+
+    # Log and save
+    logger.info("\nPer-season accuracy:\n%s", season_stats.to_string(index=False))
+    #output_path = GENERATED_DATA_DIR / "House_Diagnosis_accuracy_by_season.xlsx"
+    #season_stats.to_excel(output_path, index=False, engine="openpyxl")
+    #logger.info("Saved per-season accuracy to %s", output_path)
+
+    return season_stats
+
+
 
 def main():
-    """Main entry point for script execution."""
     df = collect_episode_prompts()
     generate_llm_responses(df)
     compute_accuracy(df)
+    accuracy_by_season(df)
 
 if __name__ == "__main__":
     main()
